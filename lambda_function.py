@@ -7,7 +7,10 @@ import logging
 
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
-
+import csv
+with open('roles.csv', mode='rU') as infile:
+    reader = csv.DictReader(infile)
+    mydict = dict((rows['Role'],rows) for rows in reader)
 
 # --- Helpers that build all of the responses ---
 
@@ -86,304 +89,241 @@ def try_ex(func):
         return None
 
 
-def generate_car_price(location, days, age, car_type):
-    """
-    Generates a number within a reasonable range that might be expected for a flight.
-    The price is fixed for a given pair of locations.
-    """
-
-    car_types = ['economy', 'standard', 'midsize', 'full size', 'minivan', 'luxury']
-    base_location_cost = 0
-    for i in range(len(location)):
-        base_location_cost += ord(location.lower()[i]) - 97
-
-    age_multiplier = 1.10 if age < 25 else 1
-    # Select economy is car_type is not found
-    if car_type not in car_types:
-        car_type = car_types[0]
-
-    return days * ((100 + base_location_cost) + ((car_types.index(car_type.lower()) * 50) * age_multiplier))
+# t
 
 
-# def generate_hotel_price(location, nights, room_type):
-#     """
-#     Generates a number within a reasonable range that might be expected for a hotel.
-#     The price is fixed for a pair of location and roomType.
-#     """
-#
-#     room_types = ['queen', 'king', 'deluxe']
-#     cost_of_living = 0
-#     for i in range(len(location)):
-#         cost_of_living += ord(location.lower()[i]) - 97
-#
-#     return nights * (100 + cost_of_living + (100 + room_types.index(room_type.lower())))
-
-
-def isvalid_car_type(car_type):
-    car_types = ['economy', 'standard', 'midsize', 'full size', 'minivan', 'luxury']
-    return car_type.lower() in car_types
-
-
-def isvalid_date(date):
-    try:
-        dateutil.parser.parse(date)
-        return True
-    except ValueError:
-        return False
-
-
-def get_day_difference(later_date, earlier_date):
-    later_datetime = dateutil.parser.parse(later_date).date()
-    earlier_datetime = dateutil.parser.parse(earlier_date).date()
-    return abs(later_datetime - earlier_datetime).days
-
-
-def add_days(date, number_of_days):
-    new_date = dateutil.parser.parse(date).date()
-    new_date += datetime.timedelta(days=number_of_days)
-    return new_date.strftime('%Y-%m-%d')
-
-
-def build_validation_result(isvalid, violated_slot, message_content):
+def build_validation_result(isvalid, violated_slot, message_content, slots, session_attributes):
     return {
         'isValid': isvalid,
         'violatedSlot': violated_slot,
-        'message': {'contentType': 'PlainText', 'content': message_content}
+        'message': {'contentType': 'PlainText', 'content': message_content},
+        'slots': slots,
+        'session_attributes':session_attributes,
     }
 
 
-def isvalid_city(city):
-    valid_cities = ['new york', 'los angeles', 'chicago', 'houston', 'philadelphia', 'phoenix', 'san antonio',
-                    'san diego', 'dallas', 'san jose', 'austin', 'jacksonville', 'san francisco', 'indianapolis',
-                    'columbus', 'fort worth', 'charlotte', 'detroit', 'el paso', 'seattle', 'denver', 'washington dc',
-                    'memphis', 'boston', 'nashville', 'baltimore', 'portland']
-    return city.lower() in valid_cities
+def isValid(key,val,slots,session_attributes):
+    if key == 'LoE' and key not in session_attributes:
+        if not val in ['Graduate','Grad','graduate','grad','Undergraduate','undergraduate','Undergrad','undergrad','PhD','phd','Phd','Ph.D','High School','High school','high school']:
 
+            print  'error', key, val
+            return build_validation_result(False,key,'Unable to associate your level of education to one among the options',slots,session_attributes)
+        else:
+            if val in ['Graduate', 'Grad', 'graduate','grad']:
+                slots['LoE'] = 'Graduate'
+            elif val in ['Undergraduate','undergraduate','Undergrad','undergrad']:
+                slots['LoE'] = 'Undergrad'
+            elif val in ['PhD','phd','Phd','Ph.D']:
+                slots['LoE'] = 'PhD'
+            else:
+                slots['LoE'] = 'High School'
+            val = slots['LoE']
+            session_attributes['LoE'] = ['High School', 'Undergrad', 'Graduate', 'PhD'].index(val)
+            session_attributes['Undergrad'] = 1
+            if val == 'Graduate':
+                slots['PlanMasters'] = 'Yes'
+                session_attributes['Masters'] = 1
+            elif val == 'PhD':
+                slots['PlanMasters'], session_attributes['Masters'], slots['PlanPhD'], session_attributes[
+                    'PhD'] = 'Yes', 1, 'Yes', 1
 
-def validate_book_car(slots):
-    pickup_city = try_ex(lambda: slots['PickUpCity'])
-    pickup_date = try_ex(lambda: slots['PickUpDate'])
-    return_date = try_ex(lambda: slots['ReturnDate'])
-    driver_age = safe_int(try_ex(lambda: slots['DriverAge']))
-    car_type = try_ex(lambda: slots['CarType'])
+            if val == 'High School':
+                session_attributes['Undergrad'] = -1
 
-    if pickup_city and not isvalid_city(pickup_city):
-        return build_validation_result(
-            False,
-            'PickUpCity',
-            'We currently do not support {} as a valid destination.  Can you try a different city?'.format(pickup_city)
-        )
+    elif key == 'PlanMasters' and 'Masters' not in session_attributes:
+        if val not in ['Yes','yes','No','no', 'maybe', 'Maybe','perhaps','Perhaps']:
+            print  'error',key,val
+            return build_validation_result(False,key, 'Unable to understand response. Reply with either a Yes or No',slots,session_attributes)
+        else:
+            if val in ['Yes', 'yes']:
+                slots[key] = 'Yes'
+            elif val in ['maybe', 'Maybe', 'perhaps', 'Perhaps']:
+                slots[key] = 'Maybe'
+            else:
+                slots[key] = 'No'
+            val = slots[key]
+            if val == 'Yes':
+                session_attributes['Masters'] = 1
+            elif val in ['Perhaps', 'Maybe']:
+                session_attributes['Masters'] = 0
+                slots['PlanPhD'], session_attributes['PhD'] = 'No', -1
+            else:
+                session_attributes['Masters'] = -1
+                slots['PlanPhD'], session_attributes['PhD'] = 'No', -1
 
-    if pickup_date:
-        if not isvalid_date(pickup_date):
-            return build_validation_result(False, 'PickUpDate',
-                                           'I did not understand your departure date.  When would you like to pick up your car rental?')
-        if datetime.datetime.strptime(pickup_date, '%Y-%m-%d').date() <= datetime.date.today():
-            return build_validation_result(False, 'PickUpDate',
-                                           'Reservations must be scheduled at least one day in advance.  Can you try a different date?')
+    elif key == 'PlanPhD' and 'PhD' not in session_attributes:
+        if val not in ['Yes','yes','No','no', 'maybe', 'Maybe','perhaps','Perhaps']:
+            print  'error',key,val
+            return build_validation_result(False,key, 'Unable to understand response. Reply with either a Yes or No',slots,session_attributes)
+        else:
+            if val in ['Yes', 'yes']:
+                slots[key] = 'Yes'
+            elif val in ['maybe', 'Maybe', 'perhaps', 'Perhaps']:
+                slots[key] = 'Maybe'
+            else:
+                slots[key] = 'No'
+            val = slots[key]
+            if val == 'Yes':
+                session_attributes['PhD'] = 1
+            elif val in ['Perhaps', 'Maybe']:
+                session_attributes['PhD'] = 0
+            else:
+                session_attributes['PhD'] = -1
 
-    if return_date:
-        if not isvalid_date(return_date):
-            return build_validation_result(False, 'ReturnDate',
-                                           'I did not understand your return date.  When would you like to return your car rental?')
+    elif key == 'OS' and key not in session_attributes:
+        if not val.isdigit():
+            print  'error', key, val
+            return build_validation_result(False, key, 'Please enter a valid number', slots,session_attributes)
+        else:
+            _n = int(val)
+            if _n < 0:
+                print  'error', key, val
+                return build_validation_result(False, key, 'Please enter a number greater than 0', slots,session_attributes)
 
-    if pickup_date and return_date:
-        if dateutil.parser.parse(pickup_date) >= dateutil.parser.parse(return_date):
-            return build_validation_result(False, 'ReturnDate',
-                                           'Your return date must be after your pick up date.  Can you try a different return date?')
+        session_attributes['OS'] = int(val)
+        if val == 0:
+            slots['Linux'] = 'No'
+            session_attributes['Linux'] = -1
 
-        if get_day_difference(pickup_date, return_date) > 30:
-            return build_validation_result(False, 'ReturnDate',
-                                           'You can reserve a car for up to thirty days.  Can you try a different return date?')
+    elif (key == 'MobileApp' or key == 'Frontend' or key == 'Backend'  or key == 'API' or key == 'Linux' or key == 'Team' or key == 'JAVA' or key == 'SystemSw' or key == 'CCNA') and key not in session_attributes:
+        if val not in ['Yes','yes','No','no', 'maybe', 'Maybe','perhaps','Perhaps']:
+            print  'error',key,val
+            return build_validation_result(False,key, 'Unable to understand response. Reply with either a Yes or No',slots,session_attributes)
+        else:
+            if val in ['Yes','yes']:
+                slots [key] = 'Yes'
+            elif val in ['maybe','Maybe','perhaps','Perhaps']:
+                slots[key] = 'Maybe'
+            else:
+                slots[key] = 'No'
+            val = slots[key]
+            session_attributes[key] = -1 if val == 'No' else (1 if val == 'Yes' else 0)
 
-    if driver_age is not None and driver_age < 18:
-        return build_validation_result(
-            False,
-            'DriverAge',
-            'Your driver must be at least eighteen to rent a car.  Can you provide the age of a different driver?'
-        )
+    elif (key == 'Specialization' or key == 'Projects' or key == 'Math') and key not in session_attributes:
+        num = list(val)
+        for n in num :
+            if not n.isdigit():
+                print 'error',key,val
+                return build_validation_result(False,key,'One of the numbers is invalid. Please try again',slots,session_attributes)
+            else:
+                _n = int(n)
+                if _n < 0 or _n > 5:
+                    print 'error', key, val, _n
+                    return build_validation_result(False, key, 'Enter the numbers between 0-5',slots,session_attributes)
 
-    if car_type and not isvalid_car_type(car_type):
-        return build_validation_result(
-            False,
-            'CarType',
-            'I did not recognize that model.  What type of car would you like to rent?  '
-            'Popular cars are economy, midsize, or luxury')
+        if key == 'Projects':
 
-    return {'isValid': True}
+                session_attributes['Projects'] = [-1] * 6
+                index = [str(v) for v in val]
+                for i in index:
+                    session_attributes['Projects'][int(i)] = 1
+                session_attributes['Projects'] = session_attributes['Projects'][1:]
+                if '0' in index:
+                    slots['MobileApp'], slots['Frontend'], slots['Backend'], slots['CCNA'], slots['Math'], \
+                    slots['API'] = 'No', 'No', 'No', 'No', '0', 'No'
+                    session_attributes['MobileApp'], session_attributes['Frontend'], session_attributes[
+                        'Backend'], session_attributes['CCNA'], \
+                    session_attributes['Math'], session_attributes['API'] = -1, -1, -1, -1, 0, -1
+                else:
+                    if '1' not in index:
+                        slots['Math'] = '0'
+                        session_attributes['Math'] = 0
+                    if '2' not in index and '5' not in index:
+                        slots['Frontend'], slots['MobileApp'] = 'No', 'No'
+                        session_attributes['Frontend'], session_attributes['MobileApp'] = -1, -1
+                    if '3' not in index:
+                        slots['CCNA'] = 'No'
+                        session_attributes['CCNA'] = -1
+                    if '4' not in index:
+                        slots['SystemSw'] = 'No'
+                        session_attributes['SystemSw'] = -1
+                session_attributes['Projects'] = ",".join([str(i) for i in session_attributes['Projects']])
+        elif key == 'Specialization':
+                session_attributes['Specialization'] = [-1]*6
+                index = [int(v) for v in list(val)]
+                for i in index:
+                    session_attributes['Specialization'][i] = 1
+                session_attributes['Specialization'] = ",".join(map(str,session_attributes['Specialization'] [1:]))
+        elif key == 'Math':
 
+                session_attributes['Math'] = int(val)
+        # slots[key] = " ".join(num)
 
-def book_car(intent_request):
-    """
-    Performs dialog management and fulfillment for booking a car.
+    return build_validation_result(True, key, None, slots, session_attributes)
 
-    Beyond fulfillment, the implementation for this intent demonstrates the following:
-    1) Use of elicitSlot in slot validation and re-prompting
-    2) Use of sessionAttributes to pass information that can be used to guide conversation
-    """
-
-
+def next_action(intent_request):
     slots = intent_request['currentIntent']['slots']
+    session_attributes = intent_request['sessionAttributes'] if intent_request['sessionAttributes'] is not None else {}
+    return delegate(session_attributes,slots)
+
+def dot_product(session,role):
+    # print 'session',session, '\nrole',role
+    _sum = 0
+    for key,val  in role.items():
+        if key not in ['Role','Message']:
+            _sum += float(val) * float(session[key])
+    return _sum
+
+
+def generate_career(session):
+    for key in ['Projects','Specialization','OS','Math']:
+        if key == 'Projects':
+            li = map(int,session[key].split(","))
+            for i in range(len(li)):
+                session['P_'+str(i)] = li[i]
+        elif key == 'Specialization':
+            li = map(int,session[key].split(","))
+            for i in range(len(li)):
+                session['S_'+str(i)] = li[i]
+        elif key == 'OS':
+            val = int(session[key])
+            val = min(6,val)
+            _map = { 0:-1, 1:-0.5, 2:0, 3:0.25, 4:0.6, 5:0.8, 6:1}
+            val = _map[val]
+            session[key] = val
+        elif key == 'Math':
+            _map = {0: -1, 1: -0.5, 2: 0.25, 3: 0.5, 4: 0.8, 5: 1}
+            session[key] = _map[int(session[key])]
+    # print session
+    roles = {}
+    for key,val in mydict.items():
+        roles[key] = dot_product(session,val)
+    _max = max(roles.items(), key=lambda x: x[1])
+
+
+    return 'Thanks for answering my questions. Looking at them I believe {}. Thanks for using our Career bot. If you wish to come again, just sai "hi" :)'.format(mydict[_max[0]]['Message'])
+
+def career_advise(intent_request):
+    print 'coming in', intent_request
+    slots = intent_request['currentIntent']['slots']
+    session_attributes = intent_request['sessionAttributes'] if intent_request['sessionAttributes'] is not None else {}
     complete = True
     for key,val in slots.items():
-        if val == None:
+        if val is None :
             complete = False
-    if complete == True:
+        else:
+            validation_result = isValid(key, val, slots,session_attributes)
+            slots = validation_result['slots']
+            session_attributes = validation_result['session_attributes']
+            if not validation_result['isValid']:
+                return elicit_slot(
+                    session_attributes,
+                    intent_request['currentIntent']['name'],
+                    slots,
+                    key,
+                    validation_result['message']
+                )
+    if complete:
+        msg = generate_career(session_attributes)
         return close(
             {},
             'Fulfilled',
             {
                 'contentType': 'PlainText',
-                'content': 'Thanks for answering my questions. Looking at them I believe you are suitable for a Software Development Engineer role in a small scale software company or a startup. Type ok to end the session'
+                'content': msg
             }
         )
-    pickup_city = try_ex(lambda: slots['PickUpCity'])
-    pickup_date = try_ex(lambda: slots['PickUpDate'])
-    return_date = try_ex(lambda: slots['ReturnDate'])
-    driver_age = try_ex(lambda: slots['DriverAge'])
-    car_type = try_ex(lambda: slots['CarType'])
-    confirmation_status = try_ex(lambda: intent_request['currentIntent']['confirmationStatus'])
-    session_attributes = intent_request['sessionAttributes'] if intent_request['sessionAttributes'] is not None else {}
-    last_confirmed_reservation = try_ex(lambda: session_attributes['lastConfirmedReservation'])
-    if last_confirmed_reservation:
-        last_confirmed_reservation = json.loads(last_confirmed_reservation)
-    confirmation_context = try_ex(lambda: session_attributes['confirmationContext'])
-
-    # Load confirmation history and track the current reservation.
-    reservation = json.dumps({
-        'ReservationType': 'Car',
-        'PickUpCity': pickup_city,
-        'PickUpDate': pickup_date,
-        'ReturnDate': return_date,
-        'CarType': car_type
-    })
-    session_attributes['currentReservation'] = reservation
-
-    if pickup_city and pickup_date and return_date and driver_age and car_type:
-        # Generate the price of the car in case it is necessary for future steps.
-        price = generate_car_price(pickup_city, get_day_difference(pickup_date, return_date), driver_age, car_type)
-        session_attributes['currentReservationPrice'] = price
-
-    if intent_request['invocationSource'] == 'DialogCodeHook':
-        # Validate any slots which have been specified.  If any are invalid, re-elicit for their value
-        validation_result = validate_book_car(intent_request['currentIntent']['slots'])
-        if not validation_result['isValid']:
-            slots[validation_result['violatedSlot']] = None
-            return elicit_slot(
-                session_attributes,
-                intent_request['currentIntent']['name'],
-                slots,
-                validation_result['violatedSlot'],
-                validation_result['message']
-            )
-
-        # Determine if the intent (and current slot settings) has been denied.  The messaging will be different
-        # if the user is denying a reservation he initiated or an auto-populated suggestion.
-        if confirmation_status == 'Denied':
-            # Clear out auto-population flag for subsequent turns.
-            try_ex(lambda: session_attributes.pop('confirmationContext'))
-            try_ex(lambda: session_attributes.pop('currentReservation'))
-            if confirmation_context == 'AutoPopulate':
-                return elicit_slot(
-                    session_attributes,
-                    intent_request['currentIntent']['name'],
-                    {
-                        'PickUpCity': None,
-                        'PickUpDate': None,
-                        'ReturnDate': None,
-                        'DriverAge': None,
-                        'CarType': None
-                    },
-                    'PickUpCity',
-                    {
-                        'contentType': 'PlainText',
-                        'content': 'Where would you like to make your car reservation?'
-                    }
-                )
-
-            return delegate(session_attributes, intent_request['currentIntent']['slots'])
-
-        if confirmation_status == 'None':
-            # If we are currently auto-populating but have not gotten confirmation, keep requesting for confirmation.
-            if (not pickup_city and not pickup_date and not return_date and not driver_age and not car_type) \
-                    or confirmation_context == 'AutoPopulate':
-                if last_confirmed_reservation and try_ex(
-                        lambda: last_confirmed_reservation['ReservationType']) == 'Hotel':
-                    # If the user's previous reservation was a hotel - prompt for a rental with
-                    # auto-populated values to match this reservation.
-                    session_attributes['confirmationContext'] = 'AutoPopulate'
-                    return confirm_intent(
-                        session_attributes,
-                        intent_request['currentIntent']['name'],
-                        {
-                            'PickUpCity': last_confirmed_reservation['Location'],
-                            'PickUpDate': last_confirmed_reservation['CheckInDate'],
-                            'ReturnDate': add_days(
-                                last_confirmed_reservation['CheckInDate'], last_confirmed_reservation['Nights']
-                            ),
-                            'CarType': None,
-                            'DriverAge': None
-                        },
-                        {
-                            'contentType': 'PlainText',
-                            'content': 'Is this car rental for your {} night stay in {} on {}?'.format(
-                                last_confirmed_reservation['Nights'],
-                                last_confirmed_reservation['Location'],
-                                last_confirmed_reservation['CheckInDate']
-                            )
-                        }
-                    )
-
-            # Otherwise, let native DM rules determine how to elicit for slots and/or drive confirmation.
-            return delegate(session_attributes, intent_request['currentIntent']['slots'])
-
-        # If confirmation has occurred, continue filling any unfilled slot values or pass to fulfillment.
-        if confirmation_status == 'Confirmed':
-            # Remove confirmationContext from sessionAttributes so it does not confuse future requests
-            try_ex(lambda: session_attributes.pop('confirmationContext'))
-            if confirmation_context == 'AutoPopulate':
-                if not driver_age:
-                    return elicit_slot(
-                        session_attributes,
-                        intent_request['currentIntent']['name'],
-                        intent_request['currentIntent']['slots'],
-                        'DriverAge',
-                        {
-                            'contentType': 'PlainText',
-                            'content': 'How old is the driver of this car rental?'
-                        }
-                    )
-                elif not car_type:
-                    return elicit_slot(
-                        session_attributes,
-                        intent_request['currentIntent']['name'],
-                        intent_request['currentIntent']['slots'],
-                        'CarType',
-                        {
-                            'contentType': 'PlainText',
-                            'content': 'What type of car would you like? Popular models are '
-                                       'economy, midsize, and luxury.'
-                        }
-                    )
-
-            return delegate(session_attributes, intent_request['currentIntent']['slots'])
-
-    # Booking the car.  In a real application, this would likely involve a call to a backend service.
-    logger.debug('bookCar at={}'.format(reservation))
-    del session_attributes['currentReservationPrice']
-    del session_attributes['currentReservation']
-    session_attributes['lastConfirmedReservation'] = reservation
-    return close(
-        session_attributes,
-        'Fulfilled',
-        {
-            'contentType': 'PlainText',
-            'content': 'Thanks, I have placed your reservation.'
-        }
-    )
-
-
-# --- Intents ---
+    return delegate(session_attributes,slots)
 
 
 def dispatch(intent_request):
@@ -398,16 +338,14 @@ def dispatch(intent_request):
 
     # Dispatch to your bot's intent handlers
     if intent_name == 'CareerIntent':
-
-        print intent_request
-        return book_car(intent_request)
+        return career_advise(intent_request)
     elif intent_name == 'Help_intent':
         return close(
-            {},
+            intent_request['sessionAttributes'] if intent_request['sessionAttributes'] is not None else {},
             'Fulfilled',
             {
                 'contentType': 'PlainText',
-                'content': 'I can help you navigate your thoughts and choose a career suitable for you. As mentioned, I am currently restricted towards careers in Computer Science. You may answer a couple of quick questions, and I will try to suggest you a good path.'
+                'content': 'I can help you navigate your thoughts and choose a career suitable for you. As mentioned, I am currently restricted towards careers in Computer Science. You may answer a couple of quick questions, and I will try to suggest you a good path. Type ok to conitnue.'
             }
         )
     elif intent_name == "GreetIntent":
@@ -438,3 +376,17 @@ def lambda_handler(event, context):
     logger.debug('event.bot.name={}'.format(event['bot']['name']))
 
     return dispatch(event)
+
+
+# if __name__ == "__main__":
+#
+#         session = {u'Masters': u'1', u'Undergrad': u'1',
+#                    u'Frontend': u'1', u'Specialization':
+#                        u'1,-1,-1,-1,-1', u'LoE': u'2',
+#                    u'SystemSw': u'-1', u'MobileApp': u'1',
+#                    u'Team': u'-1', u'PhD': u'-1', u'API': u'1',
+#                    u'CCNA': u'-1', u'Linux': u'1', u'Backend': u'1',
+#                    u'OS': u'3', u'Math': u'3',
+#                    u'Projects': u'1,1,-1,-1,1',
+#                    'JAVA':'1'}
+#         print generate_career(session)
